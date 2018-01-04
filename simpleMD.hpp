@@ -25,7 +25,6 @@ struct particle_pair {
     particle& b;
 };
 
-// From Chern's formulation
 // double lj_potential(const vec3& dr) {
 //     double dr_mag = dr.mag();
 //     return pow(dr_mag, -12) - 2 * pow(dr_mag, -6);
@@ -33,16 +32,16 @@ struct particle_pair {
 
 // Book's equation
 // rc manually set to 2^(1/6)
-double lj_potential(const vec3& dr) {
+double soft_disk_potential(const vec3& dr) {
+    static double rc = pow(2.0, 1.0 / 6.0);
     double dr_mag = dr.mag();
     double potential = 0.0;
-    if (dr_mag < pow(2.0, 1.0 / 6.0)) {
-        potential = 4 * (pow(dr_mag, -12) - pow(dr_mag, -6));
+    if (dr_mag < rc) {
+        potential = 4 * (pow(dr_mag, -12) - pow(dr_mag, -6)) + 1.0;
     }
     return potential;
 }
 
-// From Chern's formulation
 // vec3 lj_force(const vec3& dr) {
 //     double dr_mag = dr.mag();
 //     vec3 force = 12 * (pow(1.0 / dr_mag, 14) - pow(1.0 / dr_mag, 8)) * dr;
@@ -51,11 +50,12 @@ double lj_potential(const vec3& dr) {
 
 // Book's equation
 // rc manually set to 2^(1/6)
-vec3 lj_force(const vec3& dr) {
+vec3 soft_disk_force(const vec3& dr) {
+    static double rc = pow(2.0, 1.0 / 6.0);
     double dr_mag = dr.mag();
     vec3 force = {0.0, 0.0, 0.0};
-    if (dr_mag < pow(2.0, 1.0 / 6.0)) {
-        force = 48 * (pow(1.0 / dr_mag, 14) - 0.5 * pow(1.0 / dr_mag, 8)) * dr;
+    if (dr_mag < rc) {
+        force = 48 * (pow(dr_mag, -14) - 0.5 * pow(dr_mag, -8)) * dr;
     }
     return force;
 }
@@ -148,7 +148,7 @@ SimpleMDBox::SimpleMDBox(vec3 box_dim, uint n_particles,
     double edge = pow(cube_vol, 1.0 / 3.0);
     int n = 0;
 
-    // Below is incorrect
+    // Fix to work for general N, and centered at (0.0, 0.0)
     for (double posx = 0.0; posx <= box_dim.x - edge; posx += edge) {
         for (double posy = 0.0; posy <= box_dim.y - edge; posy += edge) {
             for (double posz = 0.0; posz <= box_dim.z - edge; posz += edge) {
@@ -190,7 +190,7 @@ vec3 SimpleMDBox::compute_net_force(particle& p) {
 
             // Periodic wrapping
             wrap_dr(dr);
-            net_force += lj_force(dr);
+            net_force += soft_disk_force(dr);
         }
 
         // Damping
@@ -247,22 +247,25 @@ void SimpleMDBox::wrap_dr(vec3& dr) {
 void SimpleMDBox::compute_forces() {
     for (particle& p: particles) {
         p.a = {0.0, 0.0, 0.0};
+        if (langevin) {
+            p.a = -gamma * p.v;
+        }
     }
 
     // Loops produce every pair of atoms
     for (auto iter1 = particles.begin(); iter1 != particles.end() - 1; 
                                                                 ++iter1) {
         for (auto iter2 = iter1 + 1; iter2 != particles.end(); ++iter2) {
-            vec3 dr = iter2->r - iter1->r;
+            vec3 dr = iter1->r - iter2->r;
             wrap_dr(dr);
-            vec3 force = lj_force(dr);
+            vec3 force = soft_disk_force(dr);
             iter1->a += force / mass;
-            iter2->a += -(iter1->a);
+            iter2->a += -force / mass;
         }
     }
 }
 
-// These two together comprise the RK4 method (was exploding kin. energy)
+// These two together comprise the VV method
 // void SimpleMDBox::integrate_positions() {
 //     for (particle& p: particles) {
 //         p.r = p.r + p.v * dt + 0.5 * p.a * dt * dt;
@@ -281,14 +284,14 @@ void SimpleMDBox::compute_forces() {
 void SimpleMDBox::leapfrog_step() {
     compute_forces();
     for (particle& p: particles) {
-        p.v += 0.5 * p.a;
+        p.v += 0.5 * p.a * dt;
         p.r += p.v * dt;
     }
+    wrap_particles();
     compute_forces();
     for (particle& p: particles) {
-        p.v += 0.5 * p.a;
+        p.v += 0.5 * p.a * dt;
     }
-    time += dt;
 }
 
 void SimpleMDBox::add_rand_impulses() {
@@ -297,6 +300,7 @@ void SimpleMDBox::add_rand_impulses() {
     }
 }
 
+// nvt_step for when using VV method
 // void SimpleMDBox::nvt_step() {
 //     wrap_particles();
 //     integrate_positions();
@@ -308,11 +312,11 @@ void SimpleMDBox::add_rand_impulses() {
 // }
 
 void SimpleMDBox::nvt_step() {
-    wrap_particles();
     leapfrog_step();
     if (langevin) {
         add_rand_impulses();
     }
+    time += dt;
 }
 
 // More of a check for correctness than any physical use
@@ -339,12 +343,12 @@ double SimpleMDBox::potential_energy() {
     for (auto iter1 = particles.cbegin(); iter1 != particles.cend() - 1; 
                                                                  ++iter1) {
         for (auto iter2 = iter1 + 1; iter2 != particles.cend(); ++iter2) {
-            vec3 dr = iter2->r - iter1->r;
+            vec3 dr = iter1->r - iter2->r;
             
             // Periodic wrapping
             wrap_dr(dr);
 
-            pot += lj_potential(dr);
+            pot += soft_disk_potential(dr);
         }
     }
     return pot;

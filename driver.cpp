@@ -1,21 +1,25 @@
 #include "simpleMD.hpp"
 #include <iostream>
+#include <iomanip>
 
 using std::cout;
 using std::ofstream;
+using std::setw;
+using std::left;
 
 // Outputs a chunk of information about the simulation, in one line
 // time v_sum avg_e_kin avg_e_pot e_tot 
 void output_summary(SimpleMDBox& box, ofstream& ofile) {
     double avg_kinetic = box.kinetic_energy() / box.n_particles;
     double avg_potential = box.potential_energy() / box.n_particles;
-    double total_energy = box.n_particles * (avg_kinetic + avg_potential);
+    double avg_tot_energy = avg_kinetic + avg_potential;
 
-    ofile << box.time << "\t" << box.velocity_sum() 
-                      << "\t" << avg_kinetic
-                      << "\t" << avg_potential
-                      << "\t" << total_energy
-                      << "\n";
+    ofile << setw(8) << left << box.time
+          << setw(13) << left << box.velocity_sum() 
+          << setw(12) << left << avg_kinetic
+          << setw(12) << left << avg_potential
+          << setw(12) << left << avg_tot_energy
+          << "\n";
 }
 
 void output_vel_hist(SimpleMDBox& box, ofstream& ofile, double min_val,
@@ -33,14 +37,14 @@ int main(int argc, char* argv[]) {
     ofstream summ_file("summary.dat");
     ofstream vel_hist_file("boltzmann.dat");
 
-    const uint N_steps = 1000;
+    const uint N_steps = 5000;
     const vec3 box_dim = {11.0, 11.0, 11.0}; // Want density of ~0.8
-    const uint N_particles = 1000;
+    const uint N_particles = 1000; // 10x10x10
     const double temp = 1.0;
     const double dt = 0.0001;
     SimpleMDBox box(box_dim, N_particles, temp, dt);
 
-    summ_file << "time\tv_sum\tavg_e_kin\tavg_e_pot\te_tot\n";
+    summ_file << "time    v_sum        avg_e_kin   avg_e_pot   avg_e_tot   \n";
     vel_hist_file << "time\t(bin_left_edge, rel_freq) ...\n";
 
     for (int n = 0; n < N_steps; ++n) {
