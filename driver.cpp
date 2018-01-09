@@ -1,6 +1,7 @@
 #include "simpleMD.hpp"
 #include <iostream>
 #include <iomanip>
+#include <fstream>
 
 using std::cout;
 using std::ofstream;
