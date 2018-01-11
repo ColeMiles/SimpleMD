@@ -3,11 +3,11 @@
 
 #include <random>
 #include <vector>
-#include <list>
+#include <forward_list>
 #include "../util/vec3.hpp"
 
 using std::vector;
-using std::list;
+using std::forward_list;
 using std::pair;
 using std::make_pair;
 using std::sqrt;
@@ -61,19 +61,30 @@ private:
     const double mass = 1.0;
     const double gamma = 0.5;
     const double dt;
-    const double rc = pow(2.0, 1.0 / 6.0); // Cut-off distance for LJ potential
+
+    // Cut-off distance for the soft-sphere potential
+    constexpr static double rc = pow(2.0, 1.0 / 6.0);
 
     bool langevin;
 
     std::mt19937_64 rng;
-    std::normal_distribution<double> randImpulse;
+    std::normal_distribution<double> rand_impulse;
     
     static const vec3 OFFSETS[];
-    // list<particle*>[][][]
+    // Want this to be a vec3, but that's doubles (make it a template?)
+    // This is the number of cells in each direction (x, y, z)
+    const uint n_cells[3];
+    // This is the dimensions of any single cell
+    const vec3 cell_dim;
+    vector<forward_list<particle*>> cell_list;
 
     vec3 compute_net_force(particle& p);
     void wrap_particles();
     void wrap_dr(vec3& dr);
+    forward_list<particle*>& get_cell(int x, int y, int z);
+    // Not pretty - again would be fixed by templating vec3
+    void wrap_cell(int& x, int& y, int& z);
+    void update_cells();
     void compute_forces();
     void leapfrog_step();
     void integrate_positions();

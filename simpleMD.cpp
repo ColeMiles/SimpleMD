@@ -49,7 +49,9 @@ vec3 uniform_unit_vec3() {
     return vector;
 }
 
-const vec3 SimpleMDBox::OFFSETS[] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+// Note a difference from the book: I am not including {0, 0, 0} as an offset,
+//  that case is handled separately
+const vec3 SimpleMDBox::OFFSETS[] = {{1, 0, 0}, {1, 1, 0}, {0, 1, 0},
                         {-1, 1, 0}, {-1, 0, 0}, {0, 0, 1}, {1, 0, 1},
                         {1, 1, 1}, {0, 1, 1}, {-1, 1, 1}, {-1, 0, 1},
                         {0, 1, -1}, {-1, 1, -1}};
@@ -69,8 +71,14 @@ SimpleMDBox::SimpleMDBox(vec3 box_dim, uint n_particles,
                           volume(box_dim.x * box_dim.y * box_dim.z),
                           rng(std::chrono::system_clock::now()
                                   .time_since_epoch().count()), 
-                          randImpulse(0.0, sqrt(2 * gamma * temp * dt / mass)),
-                          langevin(false) {
+                          rand_impulse(0.0, sqrt(2 * gamma * temp * dt / mass)),
+                          langevin(false),
+                          n_cells{(uint) floor(box_dim.x / rc), 
+                                  (uint) floor(box_dim.y / rc), 
+                                  (uint) floor(box_dim.z / rc)},
+                          cell_dim{box_dim.x / n_cells[0],
+                                   box_dim.y / n_cells[1],
+                                   box_dim.z / n_cells[2]} {
     particles.reserve(n_particles);
     
     // Initialize positions in a simple cubic lattice
@@ -108,6 +116,11 @@ SimpleMDBox::SimpleMDBox(vec3 box_dim, uint n_particles,
     }
 
     // Accelerations initialized to zero already when vector was filled
+
+    // Initialize the cell list. The number of cells in each dimension is found
+    //  as the number of cells to make the edge length just barely more than rc
+    //  (this is done in the initialization list at the top)
+    update_cells();
 }
 
 
@@ -175,6 +188,51 @@ void SimpleMDBox::wrap_dr(vec3& dr) {
     }
 }
 
+inline forward_list<particle*>& SimpleMDBox::get_cell(int x, int y, int z) {
+    static const uint offset_y = n_cells[1];
+    static const uint offset_z = n_cells[1] * n_cells[2];
+    return cell_list[x + y * offset_y + z * offset_z];
+}
+
+inline void SimpleMDBox::wrap_cell(int& x, int& y, int& z) {
+    if (x >= (int) n_cells[0]) {
+        x -= n_cells[0];
+    } else if (x < 0) {
+        x += n_cells[0];
+    }
+    if (y >= (int) n_cells[1]) {
+        y -= n_cells[1];
+    } else if (y < 0) {
+        y += n_cells[1];
+    }
+    if (z >= (int) n_cells[2]) {
+        z -= n_cells[2];
+    } else if (z < 0) {
+        z += n_cells[2];
+    }
+}
+
+/* Updates all of the lists of particles in each cell.
+ * Always call this after wrapping all of the particles, never before
+ */
+void SimpleMDBox::update_cells() {
+    // These offsets are used because we need our 1D vector to act like a
+    //   3D matrix, so these offsets are used to calculate the index 
+    //   using 3 coordinates
+    uint offset_y = n_cells[1];
+    uint offset_z = n_cells[1] * n_cells[2];
+    // Need a new vector of empty lists
+    cell_list = vector<forward_list<particle*>>(n_cells[0] * n_cells[1]
+                                                           * n_cells[2]);
+    for (particle & p : particles) {
+        uint cell_x = floor(p.r.x / cell_dim.x);
+        uint cell_y = floor(p.r.y / cell_dim.y);
+        uint cell_z = floor(p.r.z / cell_dim.z);
+        auto& cell = get_cell(cell_x, cell_y, cell_z);
+        cell.emplace_front(&p);
+    }
+}
+
 // Updates all particles' accelerations.
 void SimpleMDBox::compute_forces() {
     for (particle& p: particles) {
@@ -184,15 +242,56 @@ void SimpleMDBox::compute_forces() {
         }
     }
 
-    // Loops produce every pair of atoms
-    for (auto iter1 = particles.begin(); iter1 != particles.end() - 1; 
-                                                                ++iter1) {
-        for (auto iter2 = iter1 + 1; iter2 != particles.end(); ++iter2) {
-            vec3 dr = iter1->r - iter2->r;
-            wrap_dr(dr);
-            vec3 force = soft_disk_force(dr);
-            iter1->a += force / mass;
-            iter2->a += -force / mass;
+    // // Loops produce every pair of atoms
+    // for (auto iter1 = particles.begin(); iter1 != particles.end() - 1; 
+    //                                                             ++iter1) {
+    //     for (auto iter2 = iter1 + 1; iter2 != particles.end(); ++iter2) {
+    //         vec3 dr = iter1->r - iter2->r;
+    //         wrap_dr(dr);
+    //         vec3 force = soft_disk_force(dr);
+    //         iter1->a += force / mass;
+    //         iter2->a += -force / mass;
+    //     }
+    // }
+
+    // Loop over all cells, then over all the neighboring cells specified by
+    //  OFFSETS
+    for (int x = 0; x < n_cells[0]; ++x) {
+        for (int y = 0; y < n_cells[1]; ++y) {
+            for (int z = 0; z < n_cells[2]; ++z) {
+                auto cell = get_cell(x, y, z);
+                // Separate case for checking cell against itself
+                for (auto p1 = cell.cbegin(); p1 != cell.cend(); ++p1) {
+                    auto copy = p1;
+                    for (auto p2 = ++copy; p2 != cell.cend(); ++p2) {
+                        vec3 dr = (*p1)->r - (*p2)->r;
+                        wrap_dr(dr);
+                        vec3 force = soft_disk_force(dr);
+                        (*p1)->a += force / mass;
+                        (*p2)->a += -force / mass;
+                    }
+                }
+
+                for (const vec3& offset: OFFSETS) {
+                    int nx = x + offset.x;
+                    int ny = y + offset.y;
+                    int nz = z + offset.z;
+                    wrap_cell(nx, ny, nz);
+                    auto neighbor = get_cell(nx, ny, nz);
+                    // Loop over all pairs of particles in these two cells, do
+                    //  as before
+                    for (auto p1 = cell.cbegin(); p1 != cell.cend(); ++p1) {
+                        for (auto p2 = neighbor.cbegin(); p2 != neighbor.cend(); 
+                                                                         ++p2) {
+                            vec3 dr = (*p1)->r - (*p2)->r;
+                            wrap_dr(dr);
+                            vec3 force = soft_disk_force(dr);
+                            (*p1)->a += force / mass;
+                            (*p2)->a += -force / mass;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -220,6 +319,7 @@ void SimpleMDBox::leapfrog_step() {
         p.r += p.v * dt;
     }
     wrap_particles();
+    update_cells();
     compute_forces();
     for (particle& p: particles) {
         p.v += 0.5 * p.a * dt;
@@ -228,7 +328,7 @@ void SimpleMDBox::leapfrog_step() {
 
 void SimpleMDBox::add_rand_impulses() {
     for (particle& p: particles) {
-        p.v += randImpulse(rng);
+        p.v += rand_impulse(rng);
     }
 }
 
@@ -292,8 +392,8 @@ double SimpleMDBox::total_energy() {
 
 // Returns a vector of tuples, where each tuple is (bin_left_edge, rel_freq)
 vector<pair<double,double>> SimpleMDBox::compute_velocity_hist(double min_val, 
-                                                                double max_val,
-                                                                int num_bins) {
+                                                               double max_val,
+                                                               int num_bins) {
     double bin_width = (max_val - min_val) / num_bins;
     vector<pair<double,double>> histogram(num_bins, {0.0, 0.0});
 
