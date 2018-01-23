@@ -6,15 +6,6 @@
 #include <forward_list>
 #include "../util/vec3.hpp"
 
-using std::vector;
-using std::forward_list;
-using std::pair;
-using std::make_pair;
-using std::sqrt;
-using std::pow;
-using std::floor;
-using uint = unsigned int;
-
 struct particle {
     vec3 r, v, a;
 };
@@ -37,7 +28,7 @@ class SimpleMDBox {
 public:
     SimpleMDBox(vec3 box_dim, uint N, double temp, double dt);
     
-    const uint n_particles;
+    const unsigned int n_particles;
     double time;
 
     void nvt_step();
@@ -46,13 +37,13 @@ public:
     double potential_energy();
     double total_energy();
 
-    vector<pair<double,double>> compute_velocity_hist(double min_val,
-                                                      double max_val,
-                                                      int num_bins);
+    std::vector<std::pair<double,double>> compute_velocity_hist(double min_val,
+                                                                double max_val,
+                                                                int num_bins);
 
     void set_langevin(bool enable);
 private:
-    vector<particle> particles;
+    std::vector<particle> particles;
 
     const vec3 box_dim;
     const double volume;
@@ -63,7 +54,7 @@ private:
     const double dt;
 
     // Cut-off distance for the soft-sphere potential
-    constexpr static double rc = pow(2.0, 1.0 / 6.0);
+    constexpr static double rc = std::pow(2.0, 1.0 / 6.0);
 
     bool langevin;
 
@@ -73,15 +64,15 @@ private:
     static const vec3 OFFSETS[];
     // Want this to be a vec3, but that's doubles (make it a template?)
     // This is the number of cells in each direction (x, y, z)
-    const uint n_cells[3];
+    const unsigned int n_cells[3];
     // This is the dimensions of any single cell
     const vec3 cell_dim;
-    vector<forward_list<particle*>> cell_list;
+    std::vector<std::forward_list<particle*>> cell_list;
 
     vec3 compute_net_force(particle& p);
     void wrap_particles();
     void wrap_dr(vec3& dr);
-    forward_list<particle*>& get_cell(int x, int y, int z);
+    std::forward_list<particle*>& get_cell(int x, int y, int z);
     // Not pretty - again would be fixed by templating vec3
     void wrap_cell(int& x, int& y, int& z);
     void update_cells();

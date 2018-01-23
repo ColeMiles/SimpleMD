@@ -5,6 +5,15 @@
 #include <cmath>
 #include "simpleMD.hpp"
 
+using std::vector;
+using std::forward_list;
+using std::pair;
+using std::make_pair;
+using std::sqrt;
+using std::pow;
+using std::floor;
+using uint = unsigned int;
+
 // double lj_potential(const vec3& dr) {
 //     double dr_mag = dr.mag();
 //     return pow(dr_mag, -12) - 2 * pow(dr_mag, -6);
@@ -52,9 +61,9 @@ vec3 uniform_unit_vec3() {
 // Note a difference from the book: I am not including {0, 0, 0} as an offset,
 //  that case is handled separately
 const vec3 SimpleMDBox::OFFSETS[] = {{1, 0, 0}, {1, 1, 0}, {0, 1, 0},
-                        {-1, 1, 0}, {-1, 0, 0}, {0, 0, 1}, {1, 0, 1},
+                        {-1, 1, 0}, {0, 0, 1}, {1, 0, 1},
                         {1, 1, 1}, {0, 1, 1}, {-1, 1, 1}, {-1, 0, 1},
-                        {0, 1, -1}, {-1, 1, -1}};
+                        {0, 1, -1}, {-1, 1, -1}, {1, 1, -1}};
 
 /* Note to self: As of the moment, the box is entirely in the positive octant,
  *  while in the book it is centered on (0, 0, 0). While both ways should give
@@ -242,18 +251,6 @@ void SimpleMDBox::compute_forces() {
         }
     }
 
-    // // Loops produce every pair of atoms
-    // for (auto iter1 = particles.begin(); iter1 != particles.end() - 1; 
-    //                                                             ++iter1) {
-    //     for (auto iter2 = iter1 + 1; iter2 != particles.end(); ++iter2) {
-    //         vec3 dr = iter1->r - iter2->r;
-    //         wrap_dr(dr);
-    //         vec3 force = soft_disk_force(dr);
-    //         iter1->a += force / mass;
-    //         iter2->a += -force / mass;
-    //     }
-    // }
-
     // Loop over all cells, then over all the neighboring cells specified by
     //  OFFSETS
     for (int x = 0; x < n_cells[0]; ++x) {
@@ -262,8 +259,9 @@ void SimpleMDBox::compute_forces() {
                 auto cell = get_cell(x, y, z);
                 // Separate case for checking cell against itself
                 for (auto p1 = cell.cbegin(); p1 != cell.cend(); ++p1) {
-                    auto copy = p1;
-                    for (auto p2 = ++copy; p2 != cell.cend(); ++p2) {
+                    auto p2 = p1;
+                    ++p2;
+                    for (; p2 != cell.cend(); ++p2) {
                         vec3 dr = (*p1)->r - (*p2)->r;
                         wrap_dr(dr);
                         vec3 force = soft_disk_force(dr);
