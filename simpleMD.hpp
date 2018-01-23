@@ -1,3 +1,6 @@
+#ifndef SIMPLEMD_HPP
+#define SIMPLEMD_HPP
+
 #include <iostream>
 #include <fstream>
 #include <random>
@@ -373,7 +376,7 @@ vector<pair<double,double>> SimpleMDBox::compute_velocity_hist(double min_val,
     }
 
     // Make a tally of the number of particles in each bin
-    for (particle& p : particles) {
+    for (const particle& p : particles) {
         double vel = p.v.mag();
         long bin = (long) floor(vel / bin_width);
         if (bin < num_bins) {
@@ -381,9 +384,10 @@ vector<pair<double,double>> SimpleMDBox::compute_velocity_hist(double min_val,
         }
     }
 
-    // Normalize the histogram
+    // Normalize the area of the histogram to be 1
+    double norm_factor = n_particles * bin_width;
     for (int bin = 0; bin < num_bins; ++bin) {
-        histogram[bin].second /= n_particles;
+        histogram[bin].second /= norm_factor;
     }
 
     return histogram;
@@ -392,3 +396,5 @@ vector<pair<double,double>> SimpleMDBox::compute_velocity_hist(double min_val,
 void SimpleMDBox::set_langevin(bool enable) {
     langevin = enable;
 }
+
+#endif

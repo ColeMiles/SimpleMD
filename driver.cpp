@@ -43,14 +43,15 @@ int main(int argc, char* argv[]) {
     const double temp = 1.0;
     const double dt = 0.0001;
     SimpleMDBox box(box_dim, N_particles, temp, dt);
+    // box.set_langevin(true);
 
     summ_file << "time    v_sum        avg_e_kin   avg_e_pot   avg_e_tot   \n";
     vel_hist_file << "time\t(bin_left_edge, rel_freq) ...\n";
 
     for (int n = 0; n < N_steps; ++n) {
         output_summary(box, summ_file);
-        if (n % 200 == 0 && n <= 1000) {
-            output_vel_hist(box, vel_hist_file, 0.0, 2.0, 50);
+        if (n % 200 == 0 && n <= 800 || n % 2000 == 0) {
+            output_vel_hist(box, vel_hist_file, 0.0, 5.0, 50);
         }
         if (n % 100 == 0) {
             cout << "Step: " << n << "\n";
