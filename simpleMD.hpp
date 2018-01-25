@@ -4,7 +4,7 @@
 #include <random>
 #include <vector>
 #include <forward_list>
-#include "../util/vec3.hpp"
+#include "util/vec3.hpp"
 
 struct particle {
     vec3 r, v, a;
