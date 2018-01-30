@@ -12,8 +12,8 @@ struct particle {
 
 // Unused at the moment
 struct particle_pair {
-    particle& a;
-    particle& b;
+    particle& p1;
+    particle& p2;
 };
 
 /* NOTES:
@@ -53,15 +53,34 @@ private:
     const double alpha2;
     const double dt;
 
-    // Cut-off distance for the soft-sphere potential
+    //=======Cut-off distance for the soft-sphere potential==========
     constexpr static double rc = std::pow(2.0, 1.0 / 6.0);
 
-    bool langevin;
+    //=======Integration functions============
+    void compute_forces();
+    void leapfrog_step();
 
+    //=======Periodic boundary condition functions==========
+    void wrap_particles();
+    void wrap_dr(vec3& dr);
+
+    //=======Used in Langevin integration=============
+    bool langevin;
     std::mt19937_64 rng;
     std::normal_distribution<double> rand_I;
     
+    //=======Neighbor List management===========
     static const vec3 OFFSETS[];
+    // The extra length added to rc to get the range to be a "neighbor"
+    constexpr static double nebr_dr = 0.3;
+    constexpr static double rs = rc + nebr_dr;
+    // A place to keep a running sum of the max vel
+    double max_v_sum;
+    void add_max_v();
+    // A guess at the maximum neighbors per particle we'll have
+    const unsigned int nebr_fac = 8;
+    std::vector<particle_pair> nebr_list;
+
     // Want this to be a vec3, but that's doubles (make it a template?)
     // This is the number of cells in each direction (x, y, z)
     const unsigned int n_cells[3];
@@ -69,14 +88,11 @@ private:
     const vec3 cell_dim;
     std::vector<std::forward_list<particle*>> cell_list;
 
-    void wrap_particles();
-    void wrap_dr(vec3& dr);
     std::forward_list<particle*>& get_cell(int x, int y, int z);
     // Not pretty - again would be fixed by templating vec3
     void wrap_cell(int& x, int& y, int& z);
     void update_cells();
-    void compute_forces();
-    void leapfrog_step();
+    void update_neighbors();
 };
 
 #endif

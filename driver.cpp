@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
     ofstream vel_hist_file("data/boltzmann.dat");
 
     const uint N_steps = 10000;
-    const vec3 box_dim = {11.0, 11.0, 11.0}; // Want density of ~0.8
+    const vec3 box_dim = {9.0, 9.0, 9.0}; // Want density of ~0.8
     const uint N_particles = 512; // 8x8x8
     const double temp = 1.0;
     const double dt = 0.0005;

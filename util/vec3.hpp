@@ -67,6 +67,10 @@ struct vec3 {
         return *this;
     }
 
+    inline double square_mag() const {
+        return x * x + y * y + z * z;
+    }
+
     inline double mag() const {
         return std::sqrt(x * x + y * y + z * z);
     }

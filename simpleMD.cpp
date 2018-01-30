@@ -83,15 +83,16 @@ SimpleMDBox::SimpleMDBox(vec3 box_dim, uint n_particles,
                                   .time_since_epoch().count()),
                           alpha2(exp(-gamma * dt)), 
                           rand_I(0.0, sqrt(1 - pow(alpha2, 2) * temp / mass)),
-                          langevin(false),
-                          n_cells{(uint) floor(box_dim.x / rc), 
-                                  (uint) floor(box_dim.y / rc), 
-                                  (uint) floor(box_dim.z / rc)},
+                          langevin(false), max_v_sum(0.0),
+                          n_cells{(uint) floor(box_dim.x / rs), 
+                                  (uint) floor(box_dim.y / rs), 
+                                  (uint) floor(box_dim.z / rs)},
                           cell_dim{box_dim.x / n_cells[0],
                                    box_dim.y / n_cells[1],
                                    box_dim.z / n_cells[2]} {
     particles.reserve(n_particles);
-    
+    nebr_list.reserve(nebr_fac * n_particles);
+
     // Initialize positions in a simple cubic lattice
     // As of the moment, the entirety of the box is in positive coordinates
     //  (a.k.a. the bottom corner of the box is at (0, 0, 0))
@@ -128,10 +129,10 @@ SimpleMDBox::SimpleMDBox(vec3 box_dim, uint n_particles,
 
     // Accelerations initialized to zero already when vector was filled
 
-    // Initialize the cell list. The number of cells in each dimension is found
-    //  as the number of cells to make the edge length just barely more than rc
+    // Initialize the cell list / neighbords. The number of cells in each dimension is found
+    //  as the number of cells to make the edge length just barely more than rs
     //  (this is done in the initialization list at the top)
-    update_cells();
+    update_neighbors();
 }
 
 // This is different then wrap_dr just because how I set up my
@@ -220,14 +221,9 @@ void SimpleMDBox::update_cells() {
     }
 }
 
-// Updates all particles' accelerations.
-void SimpleMDBox::compute_forces() {
-    for (particle& p: particles) {
-        p.a = {0.0, 0.0, 0.0};
-    }
-
-    // Loop over all cells, then over all the neighboring cells specified by
-    //  OFFSETS
+void SimpleMDBox::update_neighbors() {
+    update_cells();
+    nebr_list.clear();
     for (int x = 0; x < n_cells[0]; ++x) {
         for (int y = 0; y < n_cells[1]; ++y) {
             for (int z = 0; z < n_cells[2]; ++z) {
@@ -239,9 +235,9 @@ void SimpleMDBox::compute_forces() {
                     for (; p2 != cell.cend(); ++p2) {
                         vec3 dr = (*p1)->r - (*p2)->r;
                         wrap_dr(dr);
-                        vec3 force = soft_disk_force(dr);
-                        (*p1)->a += force / mass;
-                        (*p2)->a += -force / mass;
+                        if (dr.mag() < rs) {
+                            nebr_list.push_back(particle_pair{**p1, **p2});
+                        }
                     }
                 }
 
@@ -258,9 +254,9 @@ void SimpleMDBox::compute_forces() {
                                                                          ++p2) {
                             vec3 dr = (*p1)->r - (*p2)->r;
                             wrap_dr(dr);
-                            vec3 force = soft_disk_force(dr);
-                            (*p1)->a += force / mass;
-                            (*p2)->a += -force / mass;
+                            if (dr.mag() < rs) {
+                                nebr_list.push_back(particle_pair{**p1, **p2});
+                            }
                         }
                     }
                 }
@@ -269,15 +265,49 @@ void SimpleMDBox::compute_forces() {
     }
 }
 
+// Updates all particles' accelerations.
+void SimpleMDBox::compute_forces() {
+    for (auto& p: particles) {
+        p.a = {0.0, 0.0, 0.0};
+    }
+
+    for (const auto& pair: nebr_list) {
+        vec3 dr = pair.p1.r - pair.p2.r;
+        wrap_dr(dr);
+        vec3 force = soft_disk_force(dr);
+        pair.p1.a += force / mass;
+        pair.p2.a += -force / mass;
+    }
+}
+
+void SimpleMDBox::add_max_v() {
+    double max_vv = 0.0;
+    for (const auto& p: particles) {
+        const double vv = p.v.square_mag();
+        if (vv > max_vv) {
+            max_vv = vv;
+        }
+    }
+    max_v_sum += sqrt(max_vv) * dt;
+}
+
 // Leapfrog method
 void SimpleMDBox::leapfrog_step() {
+    static bool update_nebrs = false;
+
     compute_forces();
     for (particle& p: particles) {
         p.v += 0.5 * p.a * dt;
         p.r += p.v * dt;
     }
     wrap_particles();
-    update_cells();
+
+    if (update_nebrs) {
+        update_nebrs = false;
+        max_v_sum = 0.0;
+        update_neighbors();
+    }
+
     compute_forces();
     if (langevin) {
         for (particle& p : particles) {
@@ -287,6 +317,11 @@ void SimpleMDBox::leapfrog_step() {
         for (particle& p: particles) {
             p.v += 0.5 * p.a * dt;
         }
+    }
+
+    add_max_v();
+    if (max_v_sum > 0.5 * nebr_dr) {
+        update_nebrs = true;
     }
 }
 
@@ -314,19 +349,16 @@ double SimpleMDBox::kinetic_energy() {
     return 0.5 * mass * kin;
 }
 
+// This is still O(n^2)!!! Incorporate into the compute_forces step or 
+//   copy its structure.
 double SimpleMDBox::potential_energy() {
     double pot = 0.0;
-    for (auto iter1 = particles.cbegin(); iter1 != particles.cend() - 1; 
-                                                                 ++iter1) {
-        for (auto iter2 = iter1 + 1; iter2 != particles.cend(); ++iter2) {
-            vec3 dr = iter1->r - iter2->r;
-            
-            // Periodic wrapping
-            wrap_dr(dr);
-
-            pot += soft_disk_potential(dr);
-        }
+    for (const auto& pair: nebr_list) {
+        vec3 dr = pair.p1.r - pair.p2.r;
+        wrap_dr(dr);
+        pot += soft_disk_potential(dr);
     }
+
     return pot;
 }
 
