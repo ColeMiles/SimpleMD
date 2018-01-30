@@ -9,7 +9,7 @@ using std::setw;
 using std::left;
 
 // Outputs a chunk of information about the simulation, in one line
-// time v_sum avg_e_kin avg_e_pot e_tot 
+// time v_sum avg_e_kin avg_e_pot e_tot temp
 void output_summary(SimpleMDBox& box, ofstream& ofile) {
     double avg_kinetic = box.kinetic_energy() / box.n_particles;
     double avg_potential = box.potential_energy() / box.n_particles;
@@ -20,6 +20,7 @@ void output_summary(SimpleMDBox& box, ofstream& ofile) {
           << setw(12) << left << avg_kinetic
           << setw(12) << left << avg_potential
           << setw(12) << left << avg_tot_energy
+          << setw(12) << left << 2 * avg_kinetic / 3
           << "\n";
 }
 
@@ -35,18 +36,18 @@ void output_vel_hist(SimpleMDBox& box, ofstream& ofile, double min_val,
 }
 
 int main(int argc, char* argv[]) {
-    ofstream summ_file("summary.dat");
-    ofstream vel_hist_file("boltzmann.dat");
+    ofstream summ_file("data/summary.dat");
+    ofstream vel_hist_file("data/boltzmann.dat");
 
-    const uint N_steps = 5000;
+    const uint N_steps = 10000;
     const vec3 box_dim = {11.0, 11.0, 11.0}; // Want density of ~0.8
-    const uint N_particles = 1000; // 10x10x10
+    const uint N_particles = 512; // 8x8x8
     const double temp = 1.0;
-    const double dt = 0.0001;
+    const double dt = 0.0005;
     SimpleMDBox box(box_dim, N_particles, temp, dt);
-    // box.set_langevin(true);
+    box.set_langevin(true);
 
-    summ_file << "time    v_sum        avg_e_kin   avg_e_pot   avg_e_tot   \n";
+    summ_file << "time    v_sum        avg_e_kin   avg_e_pot   avg_e_tot   temperature\n";
     vel_hist_file << "time\t(bin_left_edge, rel_freq) ...\n";
 
     for (int n = 0; n < N_steps; ++n) {

@@ -7,7 +7,7 @@ from ast import literal_eval
 def maxwell(v):
     return np.power(2 * np.pi * 0.7, -3.0 / 2.0) * 4 * np.pi * v * v * np.exp(-v * v / (2.0 * 0.7))
 
-with open("boltzmann.dat", "r") as file:
+with open("data/boltzmann.dat", "r") as file:
     #Skip first line
     file.readline()
     for line in file:

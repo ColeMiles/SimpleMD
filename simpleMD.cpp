@@ -11,6 +11,7 @@ using std::pair;
 using std::make_pair;
 using std::sqrt;
 using std::pow;
+using std::exp;
 using std::floor;
 using uint = unsigned int;
 
@@ -79,8 +80,9 @@ SimpleMDBox::SimpleMDBox(vec3 box_dim, uint n_particles,
                           temp(temp), dt(dt), time(0.0),
                           volume(box_dim.x * box_dim.y * box_dim.z),
                           rng(std::chrono::system_clock::now()
-                                  .time_since_epoch().count()), 
-                          rand_impulse(0.0, sqrt(2 * gamma * temp * dt / mass)),
+                                  .time_since_epoch().count()),
+                          alpha2(exp(-gamma * dt)), 
+                          rand_I(0.0, sqrt(1 - pow(alpha2, 2) * temp / mass)),
                           langevin(false),
                           n_cells{(uint) floor(box_dim.x / rc), 
                                   (uint) floor(box_dim.y / rc), 
@@ -130,30 +132,6 @@ SimpleMDBox::SimpleMDBox(vec3 box_dim, uint n_particles,
     //  as the number of cells to make the edge length just barely more than rc
     //  (this is done in the initialization list at the top)
     update_cells();
-}
-
-
-// Part of the slow, O(n^2) calc. Will need to be removed when optimizing.
-// Also looks a bit sloppy, but since this will be removed it's fine.
-vec3 SimpleMDBox::compute_net_force(particle& p) {
-    vec3 net_force = {0.0, 0.0, 0.0};
-    for (const particle& other: particles) {
-        // LJ pair forces
-        if (&other != &p) {
-            vec3 dr = other.r - p.r;
-
-            // Periodic wrapping
-            wrap_dr(dr);
-            net_force += soft_disk_force(dr);
-        }
-
-        // Damping
-        if (langevin) {
-            net_force -= gamma * p.v;
-        }
-    }
-
-    return net_force;
 }
 
 // This is different then wrap_dr just because how I set up my
@@ -246,9 +224,6 @@ void SimpleMDBox::update_cells() {
 void SimpleMDBox::compute_forces() {
     for (particle& p: particles) {
         p.a = {0.0, 0.0, 0.0};
-        if (langevin) {
-            p.a = -gamma * p.v;
-        }
     }
 
     // Loop over all cells, then over all the neighboring cells specified by
@@ -294,21 +269,6 @@ void SimpleMDBox::compute_forces() {
     }
 }
 
-// These two together comprise the VV method
-// void SimpleMDBox::integrate_positions() {
-//     for (particle& p: particles) {
-//         p.r = p.r + p.v * dt + 0.5 * p.a * dt * dt;
-//     }
-// }
-
-// void SimpleMDBox::integrate_velocities() {
-//     for (particle& p: particles) {
-//         vec3 new_accel = compute_net_force(p) / mass;
-//         p.v += 0.5 * (p.a + new_accel) * dt;
-//         p.a = new_accel;
-//     }
-// }
-
 // Leapfrog method
 void SimpleMDBox::leapfrog_step() {
     compute_forces();
@@ -319,33 +279,19 @@ void SimpleMDBox::leapfrog_step() {
     wrap_particles();
     update_cells();
     compute_forces();
-    for (particle& p: particles) {
-        p.v += 0.5 * p.a * dt;
+    if (langevin) {
+        for (particle& p : particles) {
+            p.v = alpha2 * (p.v + 0.5 * p.a * dt) + vec3{rand_I(rng), rand_I(rng), rand_I(rng)};
+        }       
+    } else {
+        for (particle& p: particles) {
+            p.v += 0.5 * p.a * dt;
+        }
     }
 }
-
-void SimpleMDBox::add_rand_impulses() {
-    for (particle& p: particles) {
-        p.v += rand_impulse(rng);
-    }
-}
-
-// nvt_step for when using VV method
-// void SimpleMDBox::nvt_step() {
-//     wrap_particles();
-//     integrate_positions();
-//     integrate_velocities();
-//     if (langevin) {
-//         add_rand_impulses();
-//     }
-//     time += dt;
-// }
 
 void SimpleMDBox::nvt_step() {
     leapfrog_step();
-    if (langevin) {
-        add_rand_impulses();
-    }
     time += dt;
 }
 
@@ -363,9 +309,9 @@ double SimpleMDBox::velocity_sum() {
 double SimpleMDBox::kinetic_energy() {
     double kin = 0.0;
     for (particle& p : particles) {
-        kin += 0.5 * mass * p.v.mag() * p.v.mag();
+        kin += p.v.mag() * p.v.mag();
     }
-    return kin;
+    return 0.5 * mass * kin;
 }
 
 double SimpleMDBox::potential_energy() {
@@ -382,10 +328,6 @@ double SimpleMDBox::potential_energy() {
         }
     }
     return pot;
-}
-
-double SimpleMDBox::total_energy() {
-    return kinetic_energy() + potential_energy();
 }
 
 // Returns a vector of tuples, where each tuple is (bin_left_edge, rel_freq)

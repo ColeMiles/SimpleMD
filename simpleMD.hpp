@@ -35,7 +35,6 @@ public:
     double velocity_sum();
     double kinetic_energy();
     double potential_energy();
-    double total_energy();
 
     std::vector<std::pair<double,double>> compute_velocity_hist(double min_val,
                                                                 double max_val,
@@ -51,6 +50,7 @@ private:
     const double temp;
     const double mass = 1.0;
     const double gamma = 0.5;
+    const double alpha2;
     const double dt;
 
     // Cut-off distance for the soft-sphere potential
@@ -59,7 +59,7 @@ private:
     bool langevin;
 
     std::mt19937_64 rng;
-    std::normal_distribution<double> rand_impulse;
+    std::normal_distribution<double> rand_I;
     
     static const vec3 OFFSETS[];
     // Want this to be a vec3, but that's doubles (make it a template?)
@@ -69,7 +69,6 @@ private:
     const vec3 cell_dim;
     std::vector<std::forward_list<particle*>> cell_list;
 
-    vec3 compute_net_force(particle& p);
     void wrap_particles();
     void wrap_dr(vec3& dr);
     std::forward_list<particle*>& get_cell(int x, int y, int z);
@@ -78,9 +77,6 @@ private:
     void update_cells();
     void compute_forces();
     void leapfrog_step();
-    void integrate_positions();
-    void integrate_velocities();
-    void add_rand_impulses();
 };
 
 #endif
