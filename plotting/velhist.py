@@ -4,10 +4,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from ast import literal_eval
 
-def maxwell(v):
-    return np.power(2 * np.pi * 0.7, -3.0 / 2.0) * 4 * np.pi * v * v * np.exp(-v * v / (2.0 * 0.7))
+temp = 1.0
 
-with open("data/boltzmann.dat", "r") as file:
+def maxwell(v):
+    return np.power(2 * np.pi * temp, -3.0 / 2.0) * 4 * np.pi * v * v * np.exp(-v * v / (2.0 * temp))
+
+with open("../data/boltzmann.dat", "r") as file:
     #Skip first line
     file.readline()
     for line in file:
@@ -28,6 +30,6 @@ with open("data/boltzmann.dat", "r") as file:
     plt.xlabel("$v$")
     plt.ylabel("Rel. Frequency")
     plt.plot(vspace, maxwell(vspace), "k-", label="Maxwell-Boltzman")
-    plt.title(r"Velocity Distribution, No Langevin, $\rho = 0.75$")
+    plt.title(r"Velocity Distribution, Langevin, $\rho = 0.75$")
     plt.legend()
     plt.show()
