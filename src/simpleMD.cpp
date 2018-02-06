@@ -3,7 +3,7 @@
 #include <chrono>
 #include <utility>
 #include <cmath>
-#include "simpleMD.hpp"
+#include "../include/simpleMD.hpp"
 
 using std::vector;
 using std::forward_list;
@@ -15,13 +15,6 @@ using std::exp;
 using std::floor;
 using uint = unsigned int;
 
-// double lj_potential(const vec3& dr) {
-//     double dr_mag = dr.mag();
-//     return pow(dr_mag, -12) - 2 * pow(dr_mag, -6);
-// }
-
-// Book's equation
-// rc manually set to 2^(1/6)
 double soft_disk_potential(const vec3& dr) {
     static double rc = pow(2.0, 1.0 / 6.0);
     double dr_mag = dr.mag();
@@ -32,14 +25,6 @@ double soft_disk_potential(const vec3& dr) {
     return potential;
 }
 
-// vec3 lj_force(const vec3& dr) {
-//     double dr_mag = dr.mag();
-//     vec3 force = 12 * (pow(1.0 / dr_mag, 14) - pow(1.0 / dr_mag, 8)) * dr;
-//     return force;
-// }
-
-// Book's equation
-// rc manually set to 2^(1/6)
 vec3 soft_disk_force(const vec3& dr) {
     static double rc = pow(2.0, 1.0 / 6.0);
     double dr_mag = dr.mag();
@@ -129,10 +114,108 @@ SimpleMDBox::SimpleMDBox(vec3 box_dim, uint n_particles,
 
     // Accelerations initialized to zero already when vector was filled
 
-    // Initialize the cell list / neighbords. The number of cells in each dimension is found
-    //  as the number of cells to make the edge length just barely more than rs
-    //  (this is done in the initialization list at the top)
     update_neighbors();
+    init_hists();
+}
+
+void SimpleMDBox::nvt_step() {
+    leapfrog_step();
+    time += dt;
+}
+
+double SimpleMDBox::velocity_sum() const {
+    vec3 sum = {0.0, 0.0, 0.0};
+    for (const particle& p : particles) {
+        sum += p.v;
+    }
+    return sum.mag();
+}
+
+double SimpleMDBox::kinetic_energy() const {
+    double kin = 0.0;
+    for (const particle& p : particles) {
+        kin += p.v.mag() * p.v.mag();
+    }
+    return 0.5 * mass * kin;
+}
+
+double SimpleMDBox::potential_energy() const {
+    double pot = 0.0;
+    for (const auto& pair: nebr_list) {
+        vec3 dr = pair.p1.r - pair.p2.r;
+        wrap_dr(dr);
+        pot += soft_disk_potential(dr);
+    }
+
+    return pot;
+}
+
+void SimpleMDBox::set_langevin(bool enable) {
+    langevin = enable;
+}
+
+// Updates all particles' accelerations.
+void SimpleMDBox::compute_forces() {
+    for (auto& p: particles) {
+        p.a = {0.0, 0.0, 0.0};
+    }
+
+    for (const auto& pair: nebr_list) {
+        vec3 dr = pair.p1.r - pair.p2.r;
+        wrap_dr(dr);
+        vec3 force = soft_disk_force(dr);
+        pair.p1.a += force / mass;
+        pair.p2.a += -force / mass;
+    }
+}
+
+void SimpleMDBox::leapfrog_step() {
+    static bool update_nebrs = false;
+
+    compute_forces();
+    for (particle& p: particles) {
+        p.v += 0.5 * p.a * dt;
+        p.r += p.v * dt;
+    }
+    wrap_particles();
+
+    if (update_nebrs) {
+        update_nebrs = false;
+        max_v_sum = 0.0;
+        update_neighbors();
+    }
+
+    compute_forces();
+    if (langevin) {
+        for (particle& p : particles) {
+            p.v = alpha2 * (p.v + 0.5 * p.a * dt) + vec3{rand_I(rng), rand_I(rng), rand_I(rng)};
+        }       
+    } else {
+        for (particle& p: particles) {
+            p.v += 0.5 * p.a * dt;
+        }
+    }
+
+    add_max_v();
+    if (max_v_sum > 0.5 * nebr_dr) {
+        update_nebrs = true;
+    }
+}
+
+void SimpleMDBox::init_hists() {
+    hists.init_hist("v", 0.0, 5.0, 100);
+    hists.init_hist("g", 0.8, 1.5, 100);
+    hists.set_updater("v", [this](Histogram& hist){
+        for (const auto& p : particles) {
+            hist.add(p.v.mag());
+        }
+    });
+    hists.set_updater("g", [this](Histogram& hist) {
+        for (const auto& pair: nebr_list) {
+            vec3 dr = pair.p1.r - pair.p2.r;
+            hist.add(dr.mag());
+        }
+    });
 }
 
 // This is different then wrap_dr just because how I set up my
@@ -158,7 +241,7 @@ void SimpleMDBox::wrap_particles() {
     }
 }
 
-void SimpleMDBox::wrap_dr(vec3& dr) {
+void SimpleMDBox::wrap_dr(vec3& dr) const {
     if (dr.x > box_dim.x / 2) {
         dr.x -= box_dim.x;
     } else if (dr.x < -box_dim.x / 2) {
@@ -221,6 +304,17 @@ void SimpleMDBox::update_cells() {
     }
 }
 
+void SimpleMDBox::add_max_v() {
+    double max_vv = 0.0;
+    for (const auto& p: particles) {
+        const double vv = p.v.square_mag();
+        if (vv > max_vv) {
+            max_vv = vv;
+        }
+    }
+    max_v_sum += sqrt(max_vv) * dt;
+}
+
 void SimpleMDBox::update_neighbors() {
     update_cells();
     nebr_list.clear();
@@ -263,138 +357,4 @@ void SimpleMDBox::update_neighbors() {
             }
         }
     }
-}
-
-// Updates all particles' accelerations.
-void SimpleMDBox::compute_forces() {
-    for (auto& p: particles) {
-        p.a = {0.0, 0.0, 0.0};
-    }
-
-    for (const auto& pair: nebr_list) {
-        vec3 dr = pair.p1.r - pair.p2.r;
-        wrap_dr(dr);
-        vec3 force = soft_disk_force(dr);
-        pair.p1.a += force / mass;
-        pair.p2.a += -force / mass;
-    }
-}
-
-void SimpleMDBox::add_max_v() {
-    double max_vv = 0.0;
-    for (const auto& p: particles) {
-        const double vv = p.v.square_mag();
-        if (vv > max_vv) {
-            max_vv = vv;
-        }
-    }
-    max_v_sum += sqrt(max_vv) * dt;
-}
-
-// Leapfrog method
-void SimpleMDBox::leapfrog_step() {
-    static bool update_nebrs = false;
-
-    compute_forces();
-    for (particle& p: particles) {
-        p.v += 0.5 * p.a * dt;
-        p.r += p.v * dt;
-    }
-    wrap_particles();
-
-    if (update_nebrs) {
-        update_nebrs = false;
-        max_v_sum = 0.0;
-        update_neighbors();
-    }
-
-    compute_forces();
-    if (langevin) {
-        for (particle& p : particles) {
-            p.v = alpha2 * (p.v + 0.5 * p.a * dt) + vec3{rand_I(rng), rand_I(rng), rand_I(rng)};
-        }       
-    } else {
-        for (particle& p: particles) {
-            p.v += 0.5 * p.a * dt;
-        }
-    }
-
-    add_max_v();
-    if (max_v_sum > 0.5 * nebr_dr) {
-        update_nebrs = true;
-    }
-}
-
-void SimpleMDBox::nvt_step() {
-    leapfrog_step();
-    time += dt;
-}
-
-// More of a check for correctness than any physical use
-// Adds all the velocity vectors, then takes the magnitude
-// (Should always be zero)
-double SimpleMDBox::velocity_sum() {
-    vec3 sum = {0.0, 0.0, 0.0};
-    for (particle&p : particles) {
-        sum += p.v;
-    }
-    return sum.mag();
-}
-
-double SimpleMDBox::kinetic_energy() {
-    double kin = 0.0;
-    for (particle& p : particles) {
-        kin += p.v.mag() * p.v.mag();
-    }
-    return 0.5 * mass * kin;
-}
-
-// This is still O(n^2)!!! Incorporate into the compute_forces step or 
-//   copy its structure.
-double SimpleMDBox::potential_energy() {
-    double pot = 0.0;
-    for (const auto& pair: nebr_list) {
-        vec3 dr = pair.p1.r - pair.p2.r;
-        wrap_dr(dr);
-        pot += soft_disk_potential(dr);
-    }
-
-    return pot;
-}
-
-// Returns a vector of tuples, where each tuple is (bin_left_edge, rel_freq)
-vector<pair<double,double>> SimpleMDBox::compute_velocity_hist(double min_val, 
-                                                               double max_val,
-                                                               int num_bins) {
-    double bin_width = (max_val - min_val) / num_bins;
-    vector<pair<double,double>> histogram(num_bins, {0.0, 0.0});
-
-    // Label the left edges of the bins
-    double prev_edge = 0.0;
-    for (int bin = 1; bin < num_bins; ++bin) {
-        prev_edge += bin_width;
-        histogram[bin].first = prev_edge;
-    }
-
-    // Make a tally of the number of particles in each bin
-    for (const particle& p : particles) {
-        double vel = p.v.mag();
-        long bin = (long) floor(vel / bin_width);
-        if (bin < num_bins) {
-           ++(histogram[bin].second);
-        }
-    }
-
-    // Normalize the area of the histogram to be 1
-    double norm_factor = n_particles * bin_width;
-    // Normalize the histogram
-    for (int bin = 0; bin < num_bins; ++bin) {
-        histogram[bin].second /= norm_factor;
-    }
-
-    return histogram;
-}
-
-void SimpleMDBox::set_langevin(bool enable) {
-    langevin = enable;
 }

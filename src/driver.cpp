@@ -1,4 +1,4 @@
-#include "simpleMD.hpp"
+#include "../include/simpleMD.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -24,13 +24,11 @@ void output_summary(SimpleMDBox& box, ofstream& ofile) {
           << "\n";
 }
 
-void output_vel_hist(SimpleMDBox& box, ofstream& ofile, double min_val,
-                                                        double max_val,
-                                                        int num_bins) {
+void output_hist(SimpleMDBox& box, std::string name, ofstream& ofile) {
     ofile << box.time << "\t";
-    auto histogram = box.compute_velocity_hist(min_val, max_val, num_bins);
+    auto histogram = box.hists.get_normalized_hist(name);
     for (auto& bin: histogram) {
-        ofile << "(" << bin.first << ", " << bin.second << ")\t";
+        ofile << "(" << bin.left_edge << ", " << bin.count << ")\t";
     }
     ofile << "\n";
 }
@@ -38,10 +36,11 @@ void output_vel_hist(SimpleMDBox& box, ofstream& ofile, double min_val,
 int main(int argc, char* argv[]) {
     ofstream summ_file("data/summary.dat");
     ofstream vel_hist_file("data/boltzmann.dat");
+    ofstream g_hist_file("data/ghist.dat");
 
-    const uint N_steps = 10000;
+    const unsigned int N_steps = 10000;
     const vec3 box_dim = {9.0, 9.0, 9.0}; // Want density of ~0.8
-    const uint N_particles = 512; // 8x8x8
+    const unsigned int N_particles = 512; // 8x8x8
     const double temp = 1.0;
     const double dt = 0.0005;
     SimpleMDBox box(box_dim, N_particles, temp, dt);
@@ -49,17 +48,22 @@ int main(int argc, char* argv[]) {
 
     summ_file << "time    v_sum        avg_e_kin   avg_e_pot   avg_e_tot   temperature\n";
     vel_hist_file << "time\t(bin_left_edge, rel_freq) ...\n";
+    g_hist_file << "time\t(bin_left_edge, rel_freq) ...\n";
 
     for (int n = 0; n < N_steps; ++n) {
         output_summary(box, summ_file);
-        if (n % 200 == 0 && n <= 800 || n % 2000 == 0) {
-            output_vel_hist(box, vel_hist_file, 0.0, 5.0, 50);
+        if (n > 3000 && n % 100 == 0) {
+            box.hists.update_hist("v");
+            box.hists.update_hist("g");
         }
         if (n % 100 == 0) {
             cout << "Step: " << n << "\n";
         }
         box.nvt_step();
     }
+
+    output_hist(box, "v", vel_hist_file);
+    output_hist(box, "g", g_hist_file);
 
     return 0;
 }

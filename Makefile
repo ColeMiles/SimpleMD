@@ -1,12 +1,20 @@
 CXX=g++
 CXXFLAGS=-std=c++11 -O2 -g
 
-driver: driver.o simpleMD.o
-	$(CXX) $(CXXFLAGS) -o driver driver.o simpleMD.o
+SOURCEDIR=src
+BUILDDIR=build
+EXECUTABLE=driver
+SOURCES=$(wildcard $(SOURCEDIR)/*.cpp)
+OBJECTS=$(patsubst $(SOURCEDIR)/%.cpp,$(BUILDDIR)/%.o,$(SOURCES))
 
-driver.o: driver.cpp
+$(EXECUTABLE): dir $(OBJECTS)
+	$(CXX) $(CXXFLAGS) -o $(EXECUTABLE) $(OBJECTS)
 
-simpleMD.o: simpleMD.cpp
+dir:
+	mkdir -p $(BUILDDIR)
+
+$(OBJECTS): $(BUILDDIR)/%.o: $(SOURCEDIR)/%.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm *.o
+	rm -f $(BUILDDIR)/*.o driver

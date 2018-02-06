@@ -4,13 +4,13 @@
 #include <random>
 #include <vector>
 #include <forward_list>
-#include "util/vec3.hpp"
+#include "vec3.hpp"
+#include "Histogrammer.hpp"
 
 struct particle {
     vec3 r, v, a;
 };
 
-// Unused at the moment
 struct particle_pair {
     particle& p1;
     particle& p2;
@@ -26,27 +26,25 @@ struct particle_pair {
 
 class SimpleMDBox {
 public:
-    SimpleMDBox(vec3 box_dim, uint N, double temp, double dt);
+    SimpleMDBox(vec3 box_dim, unsigned int N, double temp, double dt);
     
     const unsigned int n_particles;
     double time;
 
     void nvt_step();
-    double velocity_sum();
-    double kinetic_energy();
-    double potential_energy();
-
-    std::vector<std::pair<double,double>> compute_velocity_hist(double min_val,
-                                                                double max_val,
-                                                                int num_bins);
+    double velocity_sum() const;
+    double kinetic_energy() const;
+    double potential_energy() const;
 
     void set_langevin(bool enable);
+
+    Histogrammer hists;
 private:
     std::vector<particle> particles;
 
+    //=====Parameters of the System==========
     const vec3 box_dim;
     const double volume;
-
     const double temp;
     const double mass = 1.0;
     const double gamma = 0.5;
@@ -60,31 +58,23 @@ private:
     void compute_forces();
     void leapfrog_step();
 
+    //=======Histogram Management===============
+    void init_hists();
+
     //=======Periodic boundary condition functions==========
     void wrap_particles();
-    void wrap_dr(vec3& dr);
+    void wrap_dr(vec3& dr) const;
 
     //=======Used in Langevin integration=============
     bool langevin;
     std::mt19937_64 rng;
     std::normal_distribution<double> rand_I;
-    
-    //=======Neighbor List management===========
-    static const vec3 OFFSETS[];
-    // The extra length added to rc to get the range to be a "neighbor"
-    constexpr static double nebr_dr = 0.3;
-    constexpr static double rs = rc + nebr_dr;
-    // A place to keep a running sum of the max vel
-    double max_v_sum;
-    void add_max_v();
-    // A guess at the maximum neighbors per particle we'll have
-    const unsigned int nebr_fac = 8;
-    std::vector<particle_pair> nebr_list;
 
+    //=======Cell Division management================
     // Want this to be a vec3, but that's doubles (make it a template?)
     // This is the number of cells in each direction (x, y, z)
     const unsigned int n_cells[3];
-    // This is the dimensions of any single cell
+    // Dimensions of any single cell
     const vec3 cell_dim;
     std::vector<std::forward_list<particle*>> cell_list;
 
@@ -92,6 +82,18 @@ private:
     // Not pretty - again would be fixed by templating vec3
     void wrap_cell(int& x, int& y, int& z);
     void update_cells();
+
+    //=======Neighbor List management===========
+    static const vec3 OFFSETS[];
+    // The extra length added to rc to get the range to be a "neighbor"
+    constexpr static double nebr_dr = 0.3;
+    constexpr static double rs = rc + nebr_dr;
+
+    double max_v_sum;
+    void add_max_v();
+    // A guess at the maximum neighbors per particle we'll have
+    const unsigned int nebr_fac = 8;
+    std::vector<particle_pair> nebr_list;
     void update_neighbors();
 };
 
