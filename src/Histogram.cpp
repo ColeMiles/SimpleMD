@@ -2,10 +2,9 @@
 #include <cmath>
 
 Histogram::Histogram(double min_val, double max_val, int num_bins) :
-        min_val(min_val), max_val(max_val), histogram(num_bins, {0.0, 0}) {
-
-    bin_width = (max_val - min_val) / num_bins;
-
+        min_val(min_val), max_val(max_val), histogram(num_bins, {0.0, 0}),
+        bin_width( (max_val - min_val) / num_bins ) {
+            
     // Label the left edges of the bins
     double prev_edge = min_val;
     for (int bin_num = 0; bin_num < num_bins; ++bin_num) {
@@ -32,6 +31,28 @@ int Histogram::size() const {
 void Histogram::clear() {
     for (auto& bin: histogram) {
         bin.count = 0;
+    }
+}
+
+void Histogram::normalize() {
+    // Sum up all of the bins
+    double sum = 0.0;
+    for (const auto& bin : histogram) {
+        sum += bin.count;
+    }
+
+    // Normalize the area of the histogram to be 1
+    const double norm_factor = sum * bin_width;
+    // Normalize the histogram
+    for (auto& bin: histogram) {
+        bin.count /= norm_factor;
+    }
+}
+
+void Histogram::scale(std::function<double(double)> scale_f) {
+    const double half_width = bin_width / 2.0;
+    for (auto& bin : histogram) {
+        bin.count *= scale_f(bin.left_edge + half_width);
     }
 }
 

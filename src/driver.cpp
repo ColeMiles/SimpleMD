@@ -1,9 +1,13 @@
 #include "../include/simpleMD.hpp"
+#include "../include/tclap/CmdLine.h"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <cmath>
+#include <chrono>
 
 using std::cout;
+using std::cerr;
 using std::ofstream;
 using std::setw;
 using std::left;
@@ -24,33 +28,93 @@ void output_summary(SimpleMDBox& box, ofstream& ofile) {
           << "\n";
 }
 
-void output_hist(SimpleMDBox& box, std::string name, ofstream& ofile) {
-    ofile << box.time << "\t";
-    auto histogram = box.hists.get_normalized_hist(name);
-    for (auto& bin: histogram) {
+void output_hist(Histogram& hist, ofstream& ofile) {
+    for (const auto& bin: hist) {
         ofile << "(" << bin.left_edge << ", " << bin.count << ")\t";
     }
     ofile << "\n";
 }
 
 int main(int argc, char* argv[]) {
-    ofstream summ_file("data/summary.dat");
-    ofstream vel_hist_file("data/boltzmann.dat");
-    ofstream g_hist_file("data/ghist.dat");
+    
+    struct cmdargs {
+        bool langevin;
+        unsigned int N_steps;
+        double box_side;
+        unsigned int N_particles;
+        double temp;
+        double dt;
+        std::string ghist_filename;
+        std::string summary_filename;
+        std::string vhist_filename;
+    } args;
 
-    const unsigned int N_steps = 10000;
-    const vec3 box_dim = {9.0, 9.0, 9.0}; // Want density of ~0.8
-    const unsigned int N_particles = 512; // 8x8x8
-    const double temp = 1.0;
-    const double dt = 0.0005;
-    SimpleMDBox box(box_dim, N_particles, temp, dt);
-    box.set_langevin(true);
+    try {
+        /* All of this is command line argument parsing, I'm using 
+         *   the TCLAP library, which you can find here: 
+         *   http://tclap.sourceforge.net/
+         * There's no need to install it, though, as I included the 
+         *   necessary files in the
+         *   project.
+         */
+
+        TCLAP::CmdLine cmd("Simple 3D MD Simulation", ' ', "0.1");
+        TCLAP::SwitchArg langevin_arg("l", "langevin", 
+                    "Enables langevin dynamics.", cmd, false);
+        TCLAP::ValueArg<unsigned int>  N_steps_arg("n", "nsteps", 
+                    "The number of steps to perform.", false, 5000, 
+                    "unsigned int", cmd);
+        TCLAP::ValueArg<double> box_side_arg("b", "boxside", 
+                    "The length of the sides of the box.", false, 9.0, 
+                    "double", cmd);
+        TCLAP::ValueArg<unsigned int> N_particles_arg("N", "nparticles", 
+                    "The number of particles in the system.", false, 512, 
+                    "unsigned int", cmd);
+        TCLAP::ValueArg<double> temp_arg("T", "temp", 
+                    "The temperature of the system.", false, 1.0, 
+                    "double", cmd);
+        TCLAP::ValueArg<double> dt_arg("t", "step", "The step size in time.", 
+                    false, 0.0005, "double", cmd);
+        TCLAP::ValueArg<std::string> ghist_arg("g", "ghist", 
+                    "The name of the file to save the g histogram to, in data/", 
+                    false, "ghist.dat", "string", cmd);
+        TCLAP::ValueArg<std::string> sum_arg("s", "summary",
+                    "The name of the file to save the summary to, in data/",
+                    false, "summary.dat", "string", cmd);
+        TCLAP::ValueArg<std::string> vhist_arg("v", "vhist",
+                    "The name of the file to save the vel histogram to, in data/",
+                    false, "boltzmann.dat", "string", cmd);
+
+        cmd.parse(argc, argv);
+
+        args.langevin = langevin_arg.getValue();
+        args.N_steps = N_steps_arg.getValue();
+        args.box_side = box_side_arg.getValue();
+        args.N_particles = N_particles_arg.getValue();
+        args.temp = temp_arg.getValue();
+        args.dt = dt_arg.getValue();
+        args.ghist_filename = ghist_arg.getValue();
+        args.summary_filename = sum_arg.getValue();
+        args.vhist_filename = vhist_arg.getValue();
+    } catch (TCLAP::ArgException& e) {
+        cerr << "error: " << e.error() << " for arg " << e.argId() << "\n";
+        return 1;
+    }
+
+    const vec3 box_dim = {args.box_side, args.box_side, args.box_side};
+    SimpleMDBox box(box_dim, args.N_particles, args.temp, args.dt);
+    box.set_langevin(args.langevin);
+
+    ofstream summ_file("data/" + args.summary_filename);
+    ofstream vel_hist_file("data/" + args.vhist_filename);
+    ofstream g_hist_file("data/" + args.ghist_filename);
 
     summ_file << "time    v_sum        avg_e_kin   avg_e_pot   avg_e_tot   temperature\n";
     vel_hist_file << "time\t(bin_left_edge, rel_freq) ...\n";
     g_hist_file << "time\t(bin_left_edge, rel_freq) ...\n";
 
-    for (int n = 0; n < N_steps; ++n) {
+    auto t1 = std::chrono::high_resolution_clock::now();
+    for (int n = 0; n < args.N_steps; ++n) {
         output_summary(box, summ_file);
         if (n > 3000 && n % 100 == 0) {
             box.hists.update_hist("v");
@@ -61,9 +125,29 @@ int main(int argc, char* argv[]) {
         }
         box.nvt_step();
     }
+    auto t2 = std::chrono::high_resolution_clock::now();
+    cout << "Finished in " 
+         << std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count() 
+             / 1000.0
+         << " seconds\n";
 
-    output_hist(box, "v", vel_hist_file);
-    output_hist(box, "g", g_hist_file);
+    // We have to scale the g hist specially
+    const double bw = box.hists["g"].bin_width;
+    const double V = std::pow(args.box_side, 3);
+    const int N = box.n_particles;
+    constexpr double PI = std::atan(1) * 4;
+    auto g_scale = [bw, V, N, PI] (double r) {
+        return V / (2.0 * PI * bw * std::pow(N * r, 2));
+    };
+
+    Histogram vhist = box.hists["v"];
+    vhist.normalize();
+    Histogram ghist = box.hists["g"];
+    ghist.scale(g_scale);
+    ghist.normalize();
+
+    output_hist(vhist, vel_hist_file);
+    output_hist(ghist, g_hist_file);
 
     return 0;
 }

@@ -67,7 +67,7 @@ SimpleMDBox::SimpleMDBox(vec3 box_dim, uint n_particles,
                           rng(std::chrono::system_clock::now()
                                   .time_since_epoch().count()),
                           alpha2(exp(-gamma * dt)), 
-                          rand_I(0.0, sqrt(1 - pow(alpha2, 2) * temp / mass)),
+                          rand_I(0.0, sqrt((1 - pow(alpha2, 2)) * temp / mass)),
                           langevin(false), max_v_sum(0.0),
                           n_cells{(uint) floor(box_dim.x / rs), 
                                   (uint) floor(box_dim.y / rs), 
@@ -204,16 +204,25 @@ void SimpleMDBox::leapfrog_step() {
 
 void SimpleMDBox::init_hists() {
     hists.init_hist("v", 0.0, 5.0, 100);
-    hists.init_hist("g", 0.8, 1.5, 100);
+    hists.init_hist("g", 0.0, 3.0, 200);
     hists.set_updater("v", [this](Histogram& hist){
         for (const auto& p : particles) {
             hist.add(p.v.mag());
         }
     });
+    // Note this one is O(n^2), don't update very often
     hists.set_updater("g", [this](Histogram& hist) {
-        for (const auto& pair: nebr_list) {
-            vec3 dr = pair.p1.r - pair.p2.r;
-            hist.add(dr.mag());
+        // for (const auto& pair: nebr_list) {
+        //     vec3 dr = pair.p1.r - pair.p2.r;
+        //     wrap_dr(dr);
+        //     hist.add(dr.mag());
+        // }
+        for (auto iter1 = particles.cbegin(); iter1 != particles.cend() - 1; ++iter1) {
+            for (auto iter2 = iter1 + 1; iter2 != particles.cend(); ++iter2) {
+                vec3 dr = (*iter1).r - (*iter2).r;
+                wrap_dr(dr);
+                hist.add(dr.mag()); 
+            }
         }
     });
 }

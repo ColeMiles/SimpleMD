@@ -18,7 +18,7 @@ public:
     //  it. If the matching hist doesn't exist yet, does nothing.
     void set_updater(std::string name, std::function<void(Histogram&)> updater);
     
-    // Calls the function set up by the updater
+    // Calls the function set up to be the updater
     void update_hist(std::string name);
 
     // Empties a histogram
@@ -28,8 +28,6 @@ public:
     Histogram& operator[](std::string name);   //<-------- equivalent
     Histogram& get_hist(std::string name);     //<-----|
 
-    // Makes a copy of a histogram, normalizes and returns it
-    Histogram get_normalized_hist(std::string name);
 private:
     std::map<std::string, Histogram> histograms;
     std::map<std::string, std::function<void(Histogram&)>> updaters;

@@ -30,22 +30,3 @@ Histogram& Histogrammer::operator[](std::string name) {
 Histogram& Histogrammer::get_hist(std::string name) {
     return histograms.at(name);
 }
-
-Histogram Histogrammer::get_normalized_hist(std::string name) {
-    Histogram copy = histograms.at(name);
-
-    // Sum up all of the bins
-    double sum = 0.0;
-    for (const auto& bin : copy) {
-        sum += bin.count;
-    }
-
-    // Normalize the area of the histogram to be 1
-    const double norm_factor = sum * copy.bin_width;
-    // Normalize the histogram
-    for (auto& bin: copy.histogram) {
-        bin.count /= norm_factor;
-    }
-
-    return copy;
-}
